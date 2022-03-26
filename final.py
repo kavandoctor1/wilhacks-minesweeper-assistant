@@ -3,6 +3,7 @@ import keyboard
 import pyautogui
 import time
 import random
+import sys
 
 
 class MineSweeper:
@@ -38,8 +39,11 @@ class MineSweeper:
     #Check if the user has pressed the exit keybind
     def checkexit(self):
         if keyboard.is_pressed('q'):
-            print('Exiting due to \'q\' press...')
+            print('Breaking due to \'q\' press')
             self.run()
+        if keyboard.is_pressed('x'):
+            print('Exiting due to \'x\' press')
+            sys.exit()
     
     #Helper function that returns all adjacent cells to a given cell
     def neighboring(self,i,j):
@@ -115,12 +119,69 @@ class MineSweeper:
                 if works: ans.append(newgrid)
         return ans
 
+    def connectedComponents(self,adj):
+        #Create adjacency list for adj
+        nbl = []
+        for a,b in adj:
+
+            nbs = []
+            for c,d in adj:
+                if (a,b) == (c,d): continue
+                if abs(a-c)<=2 and abs(b-d)<=2:
+                    nbs.append((c,d))
+            nbl.append(nbs)
+        #Use coloring algorithm to determine different connected components
+        colors = [-1 for _ in range(len(adj))]
+        color = 0 
+        for i in range(len(adj)):
+            if colors[i] == -1:
+                self.dfs(adj,nbl,i,colors,color)
+                color +=1
+        #return the different components (different colors)
+        groups = [[adj[i] for i in range(len(adj)) if colors[i] == c] for c in range(color)]
+        
+        print([len(group) for group in groups])
+        
+        return groups
+
     #Helper function that helps split the cells into connected components
     def dfs(self,adj,nbl,i,colors,color):
         colors[i] = color
         for nb in nbl[i]:
             if colors[adj.index(nb)]== -1:
                 self.dfs(adj,nbl,adj.index(nb),colors,color)
+
+    def getMines(self):
+        mines = []
+        for i in range(self.GRIDSIZE[0]):
+            for j in range(self.GRIDSIZE[1]):
+                cell = self.GRID[i][j]
+                empty = 0
+                for ix,jy in self.neighboring(i,j):
+                    if self.GRID[ix][jy] not in '_1234567':
+                        empty += 1
+                if cell in '1234567' and int(cell) == empty:
+                    for ix,jy in self.neighboring(i,j):
+                        if self.GRID[ix][jy] == '-':
+                            mines.append((ix,jy))
+                            self.MINES[(ix,jy)] = True
+        return sorted(list(set(mines)))
+
+    def getNonMines(self):
+        noMines = []
+        for i in range(self.GRIDSIZE[0]):
+            for j in range(self.GRIDSIZE[1]):
+                cell = self.GRID[i][j]
+                filled = 0
+                for ix,jy in self.neighboring(i,j):
+                    if self.GRID[ix][jy] == 'x':
+                        filled += 1
+                if cell in '1234567' and int(cell) == filled:
+                    for ix,jy in self.neighboring(i,j):
+                        if self.GRID[ix][jy] == '-':
+                            noMines.append((ix,jy))
+
+        return sorted(list(set(noMines)))
     
     #Returns all unclicked squares that are adjacent to a clicked square
     def unclickedToSearch(self):
@@ -130,7 +191,7 @@ class MineSweeper:
                 if self.GRID[i][j] == '-':
                     isadj = False
                     for ix,jy in self.neighboring(i,j):
-                        if self.GRID[ix][jy] in '1234567':
+                        if self.GRID[ix][jy] in '1234567' or self.MINES[(ix,jy)]:
                             isadj = True
                     if isadj:
                         adj.append((i,j))
@@ -146,44 +207,21 @@ class MineSweeper:
         if sum(sum(1 for c in r if c != '-') for r in self.GRID) < 3:
             a,b = self.getCenter(random.randint(1,self.GRIDSIZE[0]-1),random.randint(1,self.GRIDSIZE[1]-1))
             pyautogui.click(a,b)
+            time.sleep(0.5)
             return
         
         #Finds the squares that are forced to be mines i.e. a 3 surrounded by only 3 unclicked squares
-        mines = []
-        for i in range(self.GRIDSIZE[0]):
-            for j in range(self.GRIDSIZE[1]):
-                cell = self.GRID[i][j]
-                empty = 0
-                for ix,jy in self.neighboring(i,j):
-                    if self.GRID[ix][jy] not in '_1234567':
-                        empty += 1
-                if cell in '1234567' and int(cell) == empty:
-                    for ix,jy in self.neighboring(i,j):
-                        if self.GRID[ix][jy] == '-':
-                            mines.append((ix,jy))
-                            self.MINES[(ix,jy)] = True
-        mines = sorted(list(set(mines)))
+        mines = self.getMines()
         for i in range(self.GRIDSIZE[0]):
             for j in range(self.GRIDSIZE[1]):
                 if self.MINES[(i,j)]: self.GRID[i][j] = 'x'
 
+        self.printGrid()
         #Finds the squares that are forced to not be mines
         #i.e. a square adjacent to a 1, that is already adjacent to amine
-        noMines = []
-        self.printGrid()
-        for i in range(self.GRIDSIZE[0]):
-            for j in range(self.GRIDSIZE[1]):
-                cell = self.GRID[i][j]
-                filled = 0
-                for ix,jy in self.neighboring(i,j):
-                    if self.GRID[ix][jy] == 'x':
-                        filled += 1
-                if cell in '1234567' and int(cell) == filled:
-                    for ix,jy in self.neighboring(i,j):
-                        if self.GRID[ix][jy] == '-':
-                            noMines.append((ix,jy))
-
-        noMines = sorted(list(set(noMines)))
+        noMines = self.getNonMines()
+        
+        
         #If nonmine found, click on it and return
         if len(noMines) > 0:
             self.clickone(noMines)
@@ -196,23 +234,9 @@ class MineSweeper:
         
         #Find all unclicked squares that are adjacent to a non-unclicked square
         adj = self.unclickedToSearch()
-        nbl = []
-        for a,b in adj:
-            nbs = []
-            for c,d in adj:
-                if (a,b) == (c,d): continue
-                if abs(a-c)<=2 and abs(b-d)<=2:
-                    nbs.append((c,d))
-            nbl.append(nbs)
-        colors = [-1 for _ in range(len(adj))]
-        color = 0 
-        for i in range(len(adj)):
-            if colors[i] == -1:
-                self.dfs(adj,nbl,i,colors,color)
-                color +=1
-        groups = [[adj[i] for i in range(len(adj)) if colors[i] == c] for c in range(color)]
+        
+        groups = self.connectedComponents(adj)
         for group in groups:
-            # print('groups',[len(group) for group in groups])
             ways = self.gen(deepcopy(self.GRID),deepcopy(group))
             mines = []
             empty = []
@@ -234,48 +258,23 @@ class MineSweeper:
 
 
 
-    def gameLoop(self):
+    def solve(self):
         while True:
-            print('loop')
             if self.getGrid() == 'bad':
                 self.paramsReady = False
                 return
             if sum(sum(1 for c in r if c != '-') for r in self.GRID) < 3:
                 a,b = self.getCenter(random.randint(1,self.GRIDSIZE[0]-1),random.randint(1,self.GRIDSIZE[1]-1))
                 pyautogui.click(a,b)
+                time.sleep(0.5)
                 continue
             self.printGrid()
-            mines = []
-            for i in range(self.GRIDSIZE[0]):
-                for j in range(self.GRIDSIZE[1]):
-                    cell = self.GRID[i][j]
-                    empty = 0
-                    for ix,jy in self.neighboring(i,j):
-                        if self.GRID[ix][jy] not in '_1234567':
-                            empty += 1
-                    if cell in '1234567' and int(cell) == empty:
-                        for ix,jy in self.neighboring(i,j):
-                            if self.GRID[ix][jy] == '-':
-                                mines.append((ix,jy))
-                                self.MINES[(ix,jy)] = True
-            mines = sorted(list(set(mines)))
+            mines = self.getMines()
             self.flagall(mines)
             for i in range(self.GRIDSIZE[0]):
                 for j in range(self.GRIDSIZE[1]):
                     if self.MINES[(i,j)]: self.GRID[i][j] = 'x'
-            noMines = []
-            for i in range(self.GRIDSIZE[0]):
-                for j in range(self.GRIDSIZE[1]):
-                    cell = self.GRID[i][j]
-                    filled = 0
-                    for ix,jy in self.neighboring(i,j):
-                        if self.GRID[ix][jy] == 'x':
-                            filled += 1
-                    if cell in '1234567' and int(cell) == filled:
-                        for ix,jy in self.neighboring(i,j):
-                            if self.GRID[ix][jy] == '-':
-                                noMines.append((ix,jy))
-            noMines = sorted(list(set(noMines)))
+            noMines = self.getNonMines()
             self.clickall(noMines)
             if self.NUMMINES == sum(1 for i in range(self.GRIDSIZE[0]) for j in range(self.GRIDSIZE[1]) if self.MINES[(i,j)]):
                 self.clickall([(i,j) for i in range(self.GRIDSIZE[0]) for j in range(self.GRIDSIZE[1]) if not self.MINES[(i,j)] and self.GRID[i][j] == '-'])
@@ -284,24 +283,11 @@ class MineSweeper:
             if len(noMines) > 0:
                 continue
             adj = self.unclickedToSearch()
-            nbl = []
-            for a,b in adj:
-                nbs = []
-                for c,d in adj:
-                    if (a,b) == (c,d): continue
-                    if abs(a-c)<=2 and abs(b-d)<=2:
-                        nbs.append((c,d))
-                nbl.append(nbs)
-            colors = [-1 for _ in range(len(adj))]
-            color = 0 
-            for i in range(len(adj)):
-                if colors[i] == -1:
-                    self.dfs(adj,nbl,i,colors,color)
-                    color +=1
-            groups = [[adj[i] for i in range(len(adj)) if colors[i] == c] for c in range(color)]
+            groups = self.connectedComponents(adj)
             totalclicked = 0
+            
+
             for group in groups:
-                print([len(group) for group in groups])
                 ways = self.gen(deepcopy(self.GRID),deepcopy(group))
                 mines = []
                 empty = []
@@ -407,7 +393,7 @@ class Google(MineSweeper):
         if unreadable > 3 and self.NUMMINES - self.UNCLICKED < 3 and failedbefore:
             self.paramsReady = False
             return 'bad'
-        elif unreadable > 1 :
+        elif unreadable > 2:
             print()
             for row in [[self.GRID[i][j] for i in range(self.GRIDSIZE[0])] for j in range(self.GRIDSIZE[1])]:
                 print(' '.join(row))
@@ -433,7 +419,7 @@ class Google(MineSweeper):
                 if not self.paramsReady:
                     self.paramsReady=self.getGridParameters()
                 if self.paramsReady:
-                    self.gameLoop()
+                    self.solve()
 
 #Constants for Google Minesweeper
 SHOWFLAGS = True
